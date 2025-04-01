@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sci-Fi UI Webpage</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      background: radial-gradient(circle at center, #0f0f1a, #000);
+      color: #00fff7;
+      font-family: 'Orbitron', sans-serif;
+    }
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+  </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center text-center p-4">
+  <header class="text-4xl font-bold text-cyan-400 drop-shadow-lg mb-10 animate-pulse">
+    GALACTIC INTERFACE V1.0
+  </header>
+
+  <main class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl w-full">
+    <div class="bg-gray-900/80 p-6 rounded-2xl border border-cyan-500 shadow-xl">
+      <h2 class="text-xl font-semibold mb-2">Module Alpha</h2>
+      <p class="text-cyan-200">Status: <span class="text-green-400">Online</span></p>
+      <button class="mt-4 px-4 py-2 bg-cyan-500 text-black font-bold rounded-lg hover:bg-cyan-400 transition">Access</button>
+    </div>
+
+    <div class="bg-gray-900/80 p-6 rounded-2xl border border-cyan-500 shadow-xl">
+      <h2 class="text-xl font-semibold mb-2">Module Beta</h2>
+      <p class="text-cyan-200">Status: <span class="text-red-400">Offline</span></p>
+      <button class="mt-4 px-4 py-2 bg-cyan-500 text-black font-bold rounded-lg hover:bg-cyan-400 transition">Diagnose</button>
+    </div>
+  </main>
+
+  <footer class="mt-16 text-sm text-gray-500">
+    © 2125 SpaceHub Corporation | All Systems Nominal
+  </footer>
+</body>
+</html>
