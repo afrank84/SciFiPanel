@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hollywood‑Style Fake Terminal</title>
+  <style>
+    :root{
+      --bg:#050806;
+      --fg:#b6ffb1;
+      --accent:#2cff2c;
+      --dim:#2a5b2a;
+      --ok:#8aff8a;
+      --warn:#ffe28a;
+      --err:#ff6b6b;
+      --cursor:#c6ffc6;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%;}
+    body{
+      margin:0; background:var(--bg); color:var(--fg);
+      font: 15px/1.4 "SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+      display:flex; flex-direction:column; min-height:100%;
+    }
+    #toolbar{display:flex; gap:.75rem; align-items:center; flex-wrap:wrap; padding:.6rem .8rem; background:#0a0f0a; border-bottom:1px solid #0f1910; position:sticky; top:0; z-index:3;}
+    .btn, select{background:#0c120d; color:var(--fg); border:1px solid #113f13; padding:.45rem .6rem; border-radius:8px; cursor:pointer;}
+    #grid{ flex:1; display:grid; gap:8px; padding:8px; }
+    #grid.panes-1{ grid-template-columns: 1fr; grid-template-rows: 1fr; }
+    #grid.panes-2{ grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
+    #grid.panes-4{ grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+    .term{ position:relative; border:1px solid #113f13; border-radius:12px; overflow:hidden; background:#061006; }
+    .term .screen{ position:absolute; inset:22px 0 0 0; padding:10px 12px 14px; overflow:auto; white-space:pre-wrap; word-break:break-word; height:calc(100% - 22px); }
+    .line{opacity:.95}
+    .prompt{color:var(--accent)}
+    .cursor{ display:inline-block; width:.6ch; background:var(--cursor); margin-left:1px; }
+  </style>
+</head>
+<body>
+  <div id="toolbar">
+    <button class="btn" id="startBtn">Start</button>
+    <button class="btn" id="pauseBtn">Pause</button>
+    <button class="btn" id="resetBtn">Reset</button>
+    <label>Speed
+      <select id="speedSel">
+        <option value="0.2" selected>Slowest</option>
+        <option value="0.4">Slower</option>
+        <option value="0.6">Slow</option>
+        <option value="1">Normal</option>
+      </select>
+    </label>
+  </div>
+  <div id="grid" class="panes-2"></div>
+<script>
+(function(){
+  const grid = document.getElementById('grid');
+  const startBtn = document.getElementById('startBtn');
+  const pauseBtn = document.getElementById('pauseBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const speedSel = document.getElementById('speedSel');
+  let running=false; let speed=0.2; let terminals=[];
+
+  class FakeTerminal{
+    constructor(container){
+      this.container=container;
+      this.container.innerHTML='<div class="screen"></div>';
+      this.screen=this.container.querySelector('.screen');
+      this.lines=0; this.paused=false; this.speed=speed;
+      this.promptUser='user'; this.promptHost='host';
+      this.loop();
+    }
+    loop(){ if(this.paused) return; this.printLine(); setTimeout(()=>this.loop(), 1500/this.speed); }
+    printLine(){
+      const cmds=["ls -la","ps aux","ping 8.8.8.8","git status","docker ps","kubectl get pods"];
+      const div=document.createElement('div');
+      div.className='line';
+      div.innerHTML='<span class="prompt">'+this.promptUser+'@'+this.promptHost+':~$</span> '+cmds[Math.floor(Math.random()*cmds.length)];
+      this.screen.append(div); this.screen.scrollTop=this.screen.scrollHeight;
+    }
+    start(){this.paused=false; this.loop();}
+    pause(){this.paused=true;}
+    reset(){this.screen.innerHTML='';}
+    setSpeed(s){this.speed=s;}
+  }
+
+  function buildPanes(n){ grid.innerHTML=''; terminals=[]; for(let i=0;i<n;i++){ const t=document.createElement('div'); t.className='term'; grid.append(t); terminals.push(new FakeTerminal(t)); } }
+
+  buildPanes(2);
+
+  startBtn.onclick=()=>{running=true; terminals.forEach(t=>t.start());};
+  pauseBtn.onclick=()=>{running=false; terminals.forEach(t=>t.pause());};
+  resetBtn.onclick=()=>{terminals.forEach(t=>t.reset());};
+  speedSel.onchange=()=>{speed=parseFloat(speedSel.value); terminals.forEach(t=>t.setSpeed(speed));};
+})();
+</script>
+</body>
+</html>
