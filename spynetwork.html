@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8" />
+	<title>Satellite Live MVP</title>
+
+	<!-- Cesium -->
+	<script src="https://cesium.com/downloads/cesiumjs/releases/1.111/Build/Cesium/Cesium.js"></script>
+	<link href="https://cesium.com/downloads/cesiumjs/releases/1.111/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+
+	<!-- satellite.js -->
+	<script src="https://unpkg.com/satellite.js/dist/satellite.min.js"></script>
+
+	<!-- Local token (NOT committed) -->
+	<script src="token.js"></script>
+
+	<style>
+		html,
+		body,
+		#cesiumContainer {
+			width: 100%;
+			height: 100%;
+			margin: 0;
+			padding: 0;
+			overflow: hidden;
+			background: radial-gradient(circle at center, #050510 0%, #000000 70%);
+			font-family: monospace;
+		}
+
+		/* Layout */
+		#appShell {
+			position: absolute;
+			top: 0;
+			left: 0;
+			right: 0;
+			bottom: 0;
+			display: flex;
+		}
+
+		#sidebar {
+			width: 340px;
+			background: rgba(0, 0, 0, 0.82);
+			border-right: 1px solid #00ffcc33;
+			color: #00ffcc;
+			z-index: 1500;
+			display: flex;
+			flex-direction: column;
+			backdrop-filter: blur(8px);
+		}
+
+		#sidebarHeader {
+			padding: 12px;
+			border-bottom: 1px solid #00ffcc22;
+		}
+
+		#tabs {
+			display: flex;
+			gap: 6px;
+			padding: 10px 12px;
+			border-bottom: 1px solid #00ffcc22;
+		}
+
+		.tabBtn {
+			flex: 1;
+			background: rgba(0, 0, 0, 0.65);
+			color: #00ffcc;
+			border: 1px solid #00ffcc33;
+			padding: 8px 6px;
+			cursor: pointer;
+		}
+
+		.tabBtn.active {
+			box-shadow: 0 0 10px #00ffcc33;
+			border-color: #00ffcc66;
+		}
+
+		#tabContent {
+			padding: 12px;
+			overflow: auto;
+			flex: 1;
+		}
+
+		.panel {
+			border: 1px solid #00ffcc22;
+			padding: 10px;
+			margin-bottom: 10px;
+			background: rgba(0, 0, 0, 0.35);
+		}
+
+		.row {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 10px;
+			margin: 8px 0;
+		}
+
+		.btn {
+			width: 100%;
+			margin-top: 6px;
+			background: rgba(0, 0, 0, 0.75);
+			color: #00ffcc;
+			border: 1px solid #00ffcc33;
+			padding: 8px;
+			cursor: pointer;
+		}
+
+		.btn:hover {
+			box-shadow: 0 0 10px #00ffcc22;
+		}
+
+		.small {
+			color: #00ffccaa;
+			font-size: 12px;
+			line-height: 1.3;
+		}
+
+		hr {
+			border: 0;
+			border-top: 1px solid #00ffcc22;
+			margin: 10px 0;
+		}
+
+		select,
+		input[type="range"] {
+			width: 170px;
+			background: rgba(0, 0, 0, 0.7);
+			color: #00ffcc;
+			border: 1px solid #00ffcc33;
+			padding: 6px;
+		}
+
+		input[type="checkbox"] {
+			transform: scale(1.15);
+		}
+
+		#main {
+			flex: 1;
+			position: relative;
+		}
+
+		#cesiumContainer {
+			position: absolute;
+			top: 0;
+			left: 0;
+			right: 0;
+			bottom: 0;
+		}
+
+		/* Loading screen */
+		#loadingScreen {
+			position: absolute;
+			inset: 0;
+			background: rgba(0, 0, 0, 0.92);
+			color: #00ffcc;
+			display: none;
+			flex-direction: column;
+			justify-content: center;
+			align-items: center;
+			font-size: 18px;
+			z-index: 2000;
+		}
+
+		#loadingScreen .count {
+			margin-top: 10px;
+			font-size: 26px;
+		}
+
+		/* Cesium UI styling */
+		.cesium-viewer-toolbar,
+		.cesium-viewer-animationContainer,
+		.cesium-viewer-timelineContainer,
+		.cesium-baseLayerPicker-dropDown {
+			background: rgba(0, 0, 0, 0.6) !important;
+			backdrop-filter: blur(6px);
+			border: 1px solid #00ffcc55;
+			box-shadow: 0 0 10px #00ffcc22;
+		}
+
+		.cesium-button {
+			background: rgba(0, 0, 0, 0.7) !important;
+			color: #00ffcc !important;
+			border: 1px solid #00ffcc55 !important;
+		}
+
+		/* Radar overlay (toggle with display) */
+		#radarOverlay {
+			position: absolute;
+			inset: 0;
+			pointer-events: none;
+			z-index: 1400;
+			display: none;
+			mix-blend-mode: screen;
+			opacity: 0.22;
+			background:
+				radial-gradient(circle at center, rgba(0, 255, 204, 0.12) 0%, rgba(0, 0, 0, 0) 55%),
+				repeating-radial-gradient(circle at center, rgba(0, 255, 204, 0.08) 0 1px, rgba(0, 0, 0, 0) 24px),
+				repeating-linear-gradient(0deg, rgba(0, 255, 204, 0.04) 0 1px, rgba(0, 0, 0, 0) 18px);
+		}
+
+		#radarSweep {
+			position: absolute;
+			inset: -40%;
+			transform-origin: center;
+			background: conic-gradient(from 0deg,
+					rgba(0, 255, 204, 0.0) 0deg,
+					rgba(0, 255, 204, 0.0) 320deg,
+					rgba(0, 255, 204, 0.25) 350deg,
+					rgba(0, 255, 204, 0.0) 360deg);
+			animation: sweep 5s linear infinite;
+		}
+
+		@keyframes sweep {
+			from {
+				transform: rotate(0deg);
+			}
+
+			to {
+				transform: rotate(360deg);
+			}
+		}
+	</style>
+</head>
+
+<body>
+	<div id="appShell">
+		<div id="sidebar">
+			<div id="sidebarHeader">
+				<div style="font-size:16px;">Live Ops Console</div>
+				<div class="small">Satellites now. Planes, cameras, alerts later.</div>
+			</div>
+
+			<div id="tabs">
+				<button class="tabBtn active" data-tab="sat">Satellites</button>
+				<button class="tabBtn" data-tab="planes">Planes</button>
+				<button class="tabBtn" data-tab="cams">Cameras</button>
+				<button class="tabBtn" data-tab="alerts">Alerts</button>
+			</div>
+
+			<div id="tabContent">
+				<!-- SAT TAB -->
+				<div id="tab-sat">
+					<div class="panel">
+						<div class="row">
+							<div>Loaded</div>
+							<div><span id="satCount">0</span></div>
+						</div>
+
+						<button class="btn" onclick="loadGroup('stations')">Load Stations (ISS)</button>
+						<button class="btn" onclick="loadGroup('starlink')">Load Starlink</button>
+						<button class="btn" onclick="loadGroup('weather')">Load Weather</button>
+						<button class="btn" onclick="loadGroup('active')">Load All Active (Heavy)</button>
+
+						<div class="small" style="margin-top:8px;">
+							Smarter approach is loading by group. "All Active" is intentionally heavy.
+						</div>
+					</div>
+
+					<div class="panel">
+						<div style="margin-bottom:8px;">Performance</div>
+
+						<div class="row">
+							<div>Update interval</div>
+							<select id="updateIntervalSel">
+								<option value="1000">1s</option>
+								<option value="5000" selected>5s</option>
+								<option value="10000">10s</option>
+							</select>
+						</div>
+
+						<div class="row">
+							<div>Update only in view</div>
+							<input id="frustumOnlyChk" type="checkbox" checked>
+						</div>
+
+						<div class="small">
+							"In view" uses a camera cone approximation plus a periodic stale refresh so satellites do
+							not drift forever.
+						</div>
+					</div>
+
+					<div class="panel">
+						<div style="margin-bottom:8px;">Orbit classes</div>
+
+						<div class="small">
+							LEO = Low Earth Orbit (below ~2,000 km).<br>
+							MEO = Medium Earth Orbit (~2,000 to ~35,786 km).<br>
+							GEO = Geostationary Orbit (~35,786 km).
+						</div>
+
+						<hr>
+
+						<div class="row">
+							<div>Show LEO</div>
+							<input id="showLEO" type="checkbox" checked>
+						</div>
+						<div class="row">
+							<div>Show MEO</div>
+							<input id="showMEO" type="checkbox" checked>
+						</div>
+						<div class="row">
+							<div>Show GEO</div>
+							<input id="showGEO" type="checkbox" checked>
+						</div>
+
+						<div class="small">
+							This is a visibility filter based on computed altitude. It does not change the data source
+							you loaded.
+						</div>
+					</div>
+
+					<div class="panel">
+						<div style="margin-bottom:8px;">Trails</div>
+
+						<div class="row">
+							<div>Trails enabled</div>
+							<input id="trailsEnabledChk" type="checkbox" checked>
+						</div>
+
+						<div class="row">
+							<div>Trails mode</div>
+							<select id="trailModeSel">
+								<option value="selected" selected>Selected/Tracked only</option>
+								<option value="visible">Visible in view only</option>
+								<option value="all">All loaded (heavy)</option>
+							</select>
+						</div>
+
+						<div class="row">
+							<div>Trail length</div>
+							<input id="trailLen" type="range" min="10" max="300" value="80">
+						</div>
+
+						<div class="small">
+							Trails are stored as position history. Keeping trails for every satellite gets expensive
+							fast.
+						</div>
+					</div>
+
+					<div class="panel">
+						<div style="margin-bottom:8px;">Tracking and HUD</div>
+
+						<button class="btn" onclick="toggleTrackISS()">Toggle auto-track ISS</button>
+
+						<div class="row">
+							<div>Radar overlay</div>
+							<input id="radarChk" type="checkbox" checked>
+						</div>
+
+						<div class="small">
+							Click a satellite to label it and make it the "selected" target for trails.
+						</div>
+					</div>
+				</div>
+
+				<!-- PLANES TAB -->
+				<div id="tab-planes" style="display:none;">
+					<div class="panel">
+						<div>Planes</div>
+						<div class="small" style="margin-top:8px;">
+							Placeholder UI. You can add ADS-B layers here later.
+						</div>
+					</div>
+				</div>
+
+				<!-- CAMERAS TAB -->
+				<div id="tab-cams" style="display:none;">
+					<div class="panel">
+						<div>Cameras</div>
+						<div class="small" style="margin-top:8px;">
+							Placeholder UI. You can add camera feed tiles and selection here later.
+						</div>
+					</div>
+				</div>
+
+				<!-- ALERTS TAB -->
+				<div id="tab-alerts" style="display:none;">
+					<div class="panel">
+						<div>Alerts</div>
+						<div class="small" style="margin-top:8px;">
+							Placeholder UI. Volcano and earthquake feeds can live here later.
+						</div>
+					</div>
+				</div>
+
+			</div>
+		</div>
+
+		<div id="main">
+			<div id="cesiumContainer"></div>
+
+			<div id="radarOverlay">
+				<div id="radarSweep"></div>
+			</div>
+
+			<div id="loadingScreen">
+				<div>Connecting to satellites...</div>
+				<div class="count" id="loadCount">0</div>
+				<div class="small" style="margin-top:10px;">Loading in batches to keep the UI responsive.</div>
+			</div>
+		</div>
+	</div>
+
+	<script>
+		// Token
+		if (!window.CESIUM_ION_TOKEN) {
+			console.error("CESIUM_ION_TOKEN missing. Create token.js");
+		} else {
+			Cesium.Ion.defaultAccessToken = window.CESIUM_ION_TOKEN;
+		}
+
+		// Viewer
+		const viewer = new Cesium.Viewer("cesiumContainer", {
+			timeline: false,
+			animation: false,
+			baseLayerPicker: true,
+			geocoder: true,
+			terrain: Cesium.Terrain.fromWorldTerrain()
+		});
+
+		viewer.scene.globe.enableLighting = true;
+		viewer.scene.globe.depthTestAgainstTerrain = true;
+		viewer.scene.fog.enabled = false;
+
+		// State
+		let satellites = []; // { satrec, entity, name, lastPos, lastUpdateMs, lastAltKm, orbitClass, trailPositions, trailEntity }
+		let updateTimer = null;
+
+		let selectedSat = null; // satellite object
+		let issSat = null; // satellite object
+		let trackingISS = false;
+
+		// UI elements
+		const satCountEl = document.getElementById("satCount");
+		const loadCountEl = document.getElementById("loadCount");
+		const loadingScreenEl = document.getElementById("loadingScreen");
+		const radarOverlayEl = document.getElementById("radarOverlay");
+
+		const updateIntervalSel = document.getElementById("updateIntervalSel");
+		const frustumOnlyChk = document.getElementById("frustumOnlyChk");
+
+		const showLEO = document.getElementById("showLEO");
+		const showMEO = document.getElementById("showMEO");
+		const showGEO = document.getElementById("showGEO");
+
+		const trailsEnabledChk = document.getElementById("trailsEnabledChk");
+		const trailModeSel = document.getElementById("trailModeSel");
+		const trailLen = document.getElementById("trailLen");
+
+		const radarChk = document.getElementById("radarChk");
+
+		// Tabs
+		document.querySelectorAll(".tabBtn").forEach(btn => {
+			btn.addEventListener("click", () => {
+				document.querySelectorAll(".tabBtn").forEach(b => b.classList.remove("active"));
+				btn.classList.add("active");
+
+				const tab = btn.getAttribute("data-tab");
+				document.getElementById("tab-sat").style.display = tab === "sat" ? "" : "none";
+				document.getElementById("tab-planes").style.display = tab === "planes" ? "" : "none";
+				document.getElementById("tab-cams").style.display = tab === "cams" ? "" : "none";
+				document.getElementById("tab-alerts").style.display = tab === "alerts" ? "" : "none";
+			});
+		});
+
+		// Radar toggle
+		function syncRadar() {
+			radarOverlayEl.style.display = radarChk.checked ? "block" : "none";
+		}
+		radarChk.addEventListener("change", syncRadar);
+		syncRadar();
+
+		// Utility: orbit classification by altitude (km)
+		function classifyOrbit(altKm) {
+			if (altKm == null || !isFinite(altKm)) return "UNKNOWN";
+			if (altKm < 2000) return "LEO";
+			if (altKm < 35786 - 2000) return "MEO";
+			// GEO is a band around 35786 km; most items won't be exactly, but this is good enough for a toggle.
+			if (Math.abs(altKm - 35786) <= 2500) return "GEO";
+			return "MEO";
+		}
+
+		function orbitClassVisible(cls) {
+			if (cls === "LEO") return showLEO.checked;
+			if (cls === "MEO") return showMEO.checked;
+			if (cls === "GEO") return showGEO.checked;
+			return true;
+		}
+
+		showLEO.addEventListener("change", applyOrbitVisibility);
+		showMEO.addEventListener("change", applyOrbitVisibility);
+		showGEO.addEventListener("change", applyOrbitVisibility);
+
+		function applyOrbitVisibility() {
+			satellites.forEach(s => {
+				const ok = orbitClassVisible(s.orbitClass);
+				s.entity.show = ok;
+				if (!ok && s === selectedSat) {
+					clearSelection();
+				}
+			});
+		}
+
+		// Update scheduling
+		function startUpdateLoop() {
+			const ms = parseInt(updateIntervalSel.value, 10);
+			if (updateTimer) clearInterval(updateTimer);
+			updateTimer = setInterval(updatePositions, ms);
+		}
+		updateIntervalSel.addEventListener("change", startUpdateLoop);
+		startUpdateLoop();
+
+		// Clear satellites
+		function clearSatellites() {
+			if (updateTimer) {
+				// keep timer running; it will do nothing if satellites empty
+			}
+			viewer.trackedEntity = undefined;
+			trackingISS = false;
+			issSat = null;
+			selectedSat = null;
+
+			satellites.forEach(s => {
+				if (s.trailEntity) viewer.entities.remove(s.trailEntity);
+				viewer.entities.remove(s.entity);
+			});
+			satellites = [];
+			satCountEl.innerText = "0";
+		}
+
+		// Loading
+		window.loadGroup = function (group) {
+			clearSatellites();
+
+			loadingScreenEl.style.display = "flex";
+			loadCountEl.innerText = "0";
+
+			fetch(`https://celestrak.org/NORAD/elements/gp.php?GROUP=${group}&FORMAT=tle`)
+				.then(res => res.text())
+				.then(data => {
+					const lines = data.split("\n").filter(l => l.trim() !== "");
+					let idx = 0;
+
+					function loadBatch() {
+						const batchSize = 200;
+						let count = 0;
+
+						while (idx < lines.length && count < batchSize) {
+							const name = lines[idx];
+							const tle1 = lines[idx + 1];
+							const tle2 = lines[idx + 2];
+							idx += 3;
+							count++;
+
+							if (!tle1 || !tle2) continue;
+
+							const satrec = satellite.twoline2satrec(tle1, tle2);
+
+							const entity = viewer.entities.add({
+								name: name,
+								position: new Cesium.Cartesian3(),
+								point: {
+									pixelSize: 4,
+									color: Cesium.Color.CYAN,
+									outlineColor: Cesium.Color.WHITE,
+									outlineWidth: 1
+								},
+								description: `<b>${name}</b>`
+							});
+
+							const obj = {
+								satrec,
+								entity,
+								name,
+								lastPos: null,
+								lastUpdateMs: 0,
+								lastAltKm: null,
+								orbitClass: "UNKNOWN",
+								trailPositions: [],
+								trailEntity: null
+							};
+
+							// Quick ISS detection (best effort)
+							const upper = (name || "").toUpperCase();
+							if (!issSat && (upper.includes("ISS") || upper.includes("ZARYA"))) {
+								issSat = obj;
+							}
+
+							satellites.push(obj);
+						}
+
+						loadCountEl.innerText = String(satellites.length);
+						satCountEl.innerText = String(satellites.length);
+
+						if (idx < lines.length) {
+							setTimeout(loadBatch, 10);
+						} else {
+							loadingScreenEl.style.display = "none";
+							// First full update to seed lastPos / orbitClass, then apply orbit visibility
+							updatePositions(true);
+							applyOrbitVisibility();
+						}
+					}
+
+					loadBatch();
+				})
+				.catch(err => {
+					console.error(err);
+					loadingScreenEl.style.display = "none";
+				});
+		};
+
+		// Selection / label
+		function clearSelection() {
+			satellites.forEach(s => {
+				s.entity.label = undefined;
+			});
+			selectedSat = null;
+		}
+
+		function setSelection(satObj) {
+			clearSelection();
+			selectedSat = satObj;
+
+			satObj.entity.label = {
+				text: satObj.entity.name,
+				font: "12px monospace",
+				fillColor: Cesium.Color.CYAN,
+				outlineColor: Cesium.Color.BLACK,
+				outlineWidth: 2,
+				style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+				verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+				pixelOffset: new Cesium.Cartesian2(0, -12)
+			};
+
+			viewer.selectedEntity = satObj.entity;
+
+			ensureTrailEntityIfNeeded(satObj);
+		}
+
+		viewer.screenSpaceEventHandler.setInputAction(function (click) {
+			const picked = viewer.scene.pick(click.position);
+			if (!Cesium.defined(picked) || !picked.id) return;
+
+			const ent = picked.id;
+			const satObj = satellites.find(s => s.entity === ent);
+			if (!satObj) return;
+
+			if (!orbitClassVisible(satObj.orbitClass)) return;
+
+			setSelection(satObj);
+		}, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+		// ISS tracking
+		window.toggleTrackISS = function () {
+			if (!issSat) {
+				console.warn("ISS not found in the currently loaded group.");
+				return;
+			}
+
+			trackingISS = !trackingISS;
+
+			if (trackingISS) {
+				viewer.trackedEntity = issSat.entity;
+				ensureTrailEntityIfNeeded(issSat);
+			} else {
+				viewer.trackedEntity = undefined;
+			}
+		};
+
+		// Frustum approximation: camera forward cone check
+		function isLikelyInView(cartesianPos) {
+			try {
+				if (!cartesianPos) return false;
+
+				// If the entity is hidden by orbit filter, treat as not in view
+				// (we check entity.show elsewhere, but keep this safe)
+				// camera vectors
+				const cam = viewer.camera;
+				const camPos = cam.positionWC;
+				const dir = cam.directionWC;
+
+				const v = Cesium.Cartesian3.subtract(cartesianPos, camPos, new Cesium.Cartesian3());
+				const vNorm = Cesium.Cartesian3.normalize(v, v);
+
+				const dot = Cesium.Cartesian3.dot(dir, vNorm);
+
+				// dot threshold approximates half-FOV cone.
+				// Higher threshold = narrower cone, fewer updates.
+				// 0.0 is 90 degrees; 0.5 is 60 degrees; 0.7 is ~45 degrees.
+				return dot > 0.25;
+			} catch (e) {
+				return true; // fail open
+			}
+		}
+
+		// Trails
+		function ensureTrailEntityIfNeeded(satObj) {
+			if (!trailsEnabledChk.checked) return;
+
+			if (!satObj.trailEntity) {
+				satObj.trailEntity = viewer.entities.add({
+					polyline: {
+						positions: new Cesium.CallbackProperty(function () {
+							return satObj.trailPositions;
+						}, false),
+						width: 2,
+						material: Cesium.Color.CYAN.withAlpha(0.35)
+					}
+				});
+			}
+		}
+
+		function pruneTrail(satObj) {
+			const maxLen = parseInt(trailLen.value, 10);
+			if (satObj.trailPositions.length > maxLen) {
+				satObj.trailPositions.splice(0, satObj.trailPositions.length - maxLen);
+			}
+		}
+
+		function shouldTrailForSat(satObj) {
+			if (!trailsEnabledChk.checked) return false;
+
+			const mode = trailModeSel.value;
+
+			if (mode === "selected") {
+				if (selectedSat && satObj === selectedSat) return true;
+				if (trackingISS && issSat && satObj === issSat) return true;
+				return false;
+			}
+
+			if (mode === "visible") {
+				return satObj.entity.show && satObj.lastPos && isLikelyInView(satObj.lastPos);
+			}
+
+			// "all"
+			return satObj.entity.show;
+		}
+
+		trailsEnabledChk.addEventListener("change", () => {
+			// If turned off, remove all trail entities
+			if (!trailsEnabledChk.checked) {
+				satellites.forEach(s => {
+					if (s.trailEntity) {
+						viewer.entities.remove(s.trailEntity);
+						s.trailEntity = null;
+					}
+					s.trailPositions = [];
+				});
+			} else {
+				// When enabling, create for selected/tracked if applicable
+				if (selectedSat) ensureTrailEntityIfNeeded(selectedSat);
+				if (trackingISS && issSat) ensureTrailEntityIfNeeded(issSat);
+			}
+		});
+
+		// Position updates
+		function updatePositions(forceFull = false) {
+			if (satellites.length === 0) return;
+
+			const now = new Date();
+			const nowMs = now.getTime();
+
+			// When frustumOnly is enabled, skip updates for out-of-view sats,
+			// but refresh anything stale every so often so it doesn't drift forever.
+			const frustumOnly = frustumOnlyChk.checked;
+			const staleRefreshMs = 60000; // 60s
+			const alwaysUpdateTracked = true;
+
+			satellites.forEach(obj => {
+				// Orbit visibility filter applied by .show; if hidden, do not spend time updating
+				if (!obj.entity.show) return;
+
+				// If frustumOnly, decide whether to update this satellite
+				if (!forceFull && frustumOnly) {
+					const inView = obj.lastPos ? isLikelyInView(obj.lastPos) : true;
+					const stale = (nowMs - (obj.lastUpdateMs || 0)) > staleRefreshMs;
+
+					const isTracked = alwaysUpdateTracked && (
+						(selectedSat && obj === selectedSat) ||
+						(trackingISS && issSat && obj === issSat)
+					);
+
+					if (!inView && !stale && !isTracked) {
+						return;
+					}
+				}
+
+				// Propagate
+				const pv = satellite.propagate(obj.satrec, now);
+				if (!pv.position) return;
+
+				const gmst = satellite.gstime(now);
+				const gd = satellite.eciToGeodetic(pv.position, gmst);
+
+				const lon = Cesium.Math.toDegrees(gd.longitude);
+				const lat = Cesium.Math.toDegrees(gd.latitude);
+				const heightM = gd.height * 1000;
+				const altKm = heightM / 1000.0;
+
+				obj.lastAltKm = altKm;
+				obj.orbitClass = classifyOrbit(altKm);
+
+				// Apply orbit-class visibility on the fly
+				const ok = orbitClassVisible(obj.orbitClass);
+				obj.entity.show = ok;
+				if (!ok) return;
+
+				const pos = Cesium.Cartesian3.fromDegrees(lon, lat, heightM);
+				obj.entity.position = pos;
+
+				obj.lastPos = pos;
+				obj.lastUpdateMs = nowMs;
+
+				// Update description (kept lightweight)
+				obj.entity.description = `
+					<b>${obj.name}</b><br>
+					Orbit: ${obj.orbitClass}<br>
+					Latitude: ${lat.toFixed(2)}°<br>
+					Longitude: ${lon.toFixed(2)}°<br>
+					Altitude: ${altKm.toFixed(1)} km
+				`;
+
+				// Trails
+				if (shouldTrailForSat(obj)) {
+					ensureTrailEntityIfNeeded(obj);
+					obj.trailPositions.push(pos);
+					pruneTrail(obj);
+				} else {
+					// If trails exist but shouldn't, clear
+					if (obj.trailEntity && trailModeSel.value !== "all") {
+						// Keep trail entity around for selected/tracked switches, but stop growing.
+						// If you want hard removal for non-targets, uncomment:
+						// viewer.entities.remove(obj.trailEntity); obj.trailEntity = null;
+					}
+				}
+			});
+		}
+
+	</script>
+</body>
+
+</html>
