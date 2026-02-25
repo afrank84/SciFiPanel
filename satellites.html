@@ -30,11 +30,14 @@
 	<div id="cesiumContainer"></div>
 
 	<script>
-		// Create globe
+		// Create globe with Earth imagery
 		const viewer = new Cesium.Viewer("cesiumContainer", {
 			timeline: false,
 			animation: false,
-			baseLayerPicker: false
+			baseLayerPicker: false,
+			imageryProvider: new Cesium.UrlTemplateImageryProvider({
+				url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
+			})
 		});
 
 		// Enable click selection
@@ -74,7 +77,7 @@
 						description: `<b>${name}</b>`
 					});
 
-					satellites.push({ satrec, entity });
+					satellites.push({ satrec, entity, name });
 				}
 			});
 
@@ -84,7 +87,6 @@
 			satellites.forEach(obj => {
 				const positionAndVelocity = satellite.propagate(obj.satrec, now);
 				const positionEci = positionAndVelocity.position;
-
 				if (!positionEci) return;
 
 				const gmst = satellite.gstime(now);
@@ -95,6 +97,14 @@
 				const height = positionGd.height * 1000;
 
 				obj.entity.position = Cesium.Cartesian3.fromDegrees(longitude, latitude, height);
+
+				// Update description live
+				obj.entity.description = `
+					<b>${obj.name}</b><br>
+					Latitude: ${latitude.toFixed(2)}°<br>
+					Longitude: ${longitude.toFixed(2)}°<br>
+					Altitude: ${(height / 1000).toFixed(1)} km
+				`;
 			});
 		}
 
