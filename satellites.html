@@ -12,6 +12,9 @@
 	<!-- satellite.js -->
 	<script src="https://unpkg.com/satellite.js/dist/satellite.min.js"></script>
 
+	<!-- Local token (NOT committed) -->
+	<script src="token.js"></script>
+
 	<style>
 		html,
 		body,
@@ -30,15 +33,25 @@
 	<div id="cesiumContainer"></div>
 
 	<script>
-		// Create globe with Earth imagery
+
+		// Safety check
+		if (!window.CESIUM_ION_TOKEN) {
+			console.error("CESIUM_ION_TOKEN missing. Create token.js");
+		} else {
+			Cesium.Ion.defaultAccessToken = window.CESIUM_ION_TOKEN;
+		}
+
+		// Create globe (YOUR CODE + terrain added)
 		const viewer = new Cesium.Viewer("cesiumContainer", {
 			timeline: false,
 			animation: false,
-			baseLayerPicker: false,
-			imageryProvider: new Cesium.UrlTemplateImageryProvider({
-				url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
-			})
+			baseLayerPicker: true,        // lets you switch imagery
+			geocoder: true,               // enables search bar
+			terrain: Cesium.Terrain.fromWorldTerrain()
 		});
+
+		viewer.scene.globe.enableLighting = true;
+		viewer.scene.globe.depthTestAgainstTerrain = true;
 
 		// Enable click selection
 		viewer.screenSpaceEventHandler.setInputAction(function (click) {
@@ -47,8 +60,6 @@
 				viewer.selectedEntity = pickedObject.id;
 			}
 		}, Cesium.ScreenSpaceEventType.LEFT_CLICK);
-
-		viewer.scene.globe.enableLighting = true;
 
 		let satellites = [];
 
@@ -98,7 +109,6 @@
 
 				obj.entity.position = Cesium.Cartesian3.fromDegrees(longitude, latitude, height);
 
-				// Update description live
 				obj.entity.description = `
 					<b>${obj.name}</b><br>
 					Latitude: ${latitude.toFixed(2)}°<br>
@@ -109,6 +119,7 @@
 		}
 
 		setInterval(updatePositions, 1000);
+
 	</script>
 </body>
 
