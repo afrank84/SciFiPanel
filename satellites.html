@@ -1,92 +1,105 @@
 <!DOCTYPE html>
 <html>
+
 <head>
-  <meta charset="utf-8" />
-  <title>Satellite Live MVP</title>
+	<meta charset="utf-8" />
+	<title>Satellite Live MVP</title>
 
-  <!-- Cesium -->
-  <script src="https://cesium.com/downloads/cesiumjs/releases/1.111/Build/Cesium/Cesium.js"></script>
-  <link href="https://cesium.com/downloads/cesiumjs/releases/1.111/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+	<!-- Cesium -->
+	<script src="https://cesium.com/downloads/cesiumjs/releases/1.111/Build/Cesium/Cesium.js"></script>
+	<link href="https://cesium.com/downloads/cesiumjs/releases/1.111/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
 
-  <!-- satellite.js -->
-  <script src="https://unpkg.com/satellite.js/dist/satellite.min.js"></script>
+	<!-- satellite.js -->
+	<script src="https://unpkg.com/satellite.js/dist/satellite.min.js"></script>
 
-  <style>
-    html, body, #cesiumContainer {
-      width: 100%;
-      height: 100%;
-      margin: 0;
-      padding: 0;
-      overflow: hidden;
-      background: black;
-    }
-  </style>
+	<style>
+		html,
+		body,
+		#cesiumContainer {
+			width: 100%;
+			height: 100%;
+			margin: 0;
+			padding: 0;
+			overflow: hidden;
+			background: black;
+		}
+	</style>
 </head>
 
 <body>
-  <div id="cesiumContainer"></div>
+	<div id="cesiumContainer"></div>
 
-  <script>
-    // Create globe
-    const viewer = new Cesium.Viewer("cesiumContainer", {
-      timeline: false,
-      animation: false,
-      baseLayerPicker: false
-    });
+	<script>
+		// Create globe
+		const viewer = new Cesium.Viewer("cesiumContainer", {
+			timeline: false,
+			animation: false,
+			baseLayerPicker: false
+		});
 
-    viewer.scene.globe.enableLighting = true;
+		// Enable click selection
+		viewer.screenSpaceEventHandler.setInputAction(function (click) {
+			const pickedObject = viewer.scene.pick(click.position);
+			if (Cesium.defined(pickedObject) && pickedObject.id) {
+				viewer.selectedEntity = pickedObject.id;
+			}
+		}, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
-    let satellites = [];
+		viewer.scene.globe.enableLighting = true;
 
-    // Load active satellites TLE
-    fetch("https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle")
-      .then(res => res.text())
-      .then(data => {
-        const lines = data.split("\n").filter(l => l.trim() !== "");
+		let satellites = [];
 
-        for (let i = 0; i < lines.length; i += 3) {
-          const name = lines[i];
-          const tle1 = lines[i+1];
-          const tle2 = lines[i+2];
+		// Load active satellites TLE
+		fetch("https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle")
+			.then(res => res.text())
+			.then(data => {
+				const lines = data.split("\n").filter(l => l.trim() !== "");
 
-          if (!tle1 || !tle2) continue;
+				for (let i = 0; i < lines.length; i += 3) {
+					const name = lines[i];
+					const tle1 = lines[i + 1];
+					const tle2 = lines[i + 2];
 
-          const satrec = satellite.twoline2satrec(tle1, tle2);
+					if (!tle1 || !tle2) continue;
 
-          const entity = viewer.entities.add({
-            name: name,
-            position: new Cesium.Cartesian3(),
-            point: {
-              pixelSize: 4,
-              color: Cesium.Color.LIME
-            }
-          });
+					const satrec = satellite.twoline2satrec(tle1, tle2);
 
-          satellites.push({ satrec, entity });
-        }
-      });
+					const entity = viewer.entities.add({
+						name: name,
+						position: new Cesium.Cartesian3(),
+						point: {
+							pixelSize: 4,
+							color: Cesium.Color.LIME
+						},
+						description: `<b>${name}</b>`
+					});
 
-    function updatePositions() {
-      const now = new Date();
+					satellites.push({ satrec, entity });
+				}
+			});
 
-      satellites.forEach(obj => {
-        const positionAndVelocity = satellite.propagate(obj.satrec, now);
-        const positionEci = positionAndVelocity.position;
+		function updatePositions() {
+			const now = new Date();
 
-        if (!positionEci) return;
+			satellites.forEach(obj => {
+				const positionAndVelocity = satellite.propagate(obj.satrec, now);
+				const positionEci = positionAndVelocity.position;
 
-        const gmst = satellite.gstime(now);
-        const positionGd = satellite.eciToGeodetic(positionEci, gmst);
+				if (!positionEci) return;
 
-        const longitude = Cesium.Math.toDegrees(positionGd.longitude);
-        const latitude = Cesium.Math.toDegrees(positionGd.latitude);
-        const height = positionGd.height * 1000;
+				const gmst = satellite.gstime(now);
+				const positionGd = satellite.eciToGeodetic(positionEci, gmst);
 
-        obj.entity.position = Cesium.Cartesian3.fromDegrees(longitude, latitude, height);
-      });
-    }
+				const longitude = Cesium.Math.toDegrees(positionGd.longitude);
+				const latitude = Cesium.Math.toDegrees(positionGd.latitude);
+				const height = positionGd.height * 1000;
 
-    setInterval(updatePositions, 1000);
-  </script>
+				obj.entity.position = Cesium.Cartesian3.fromDegrees(longitude, latitude, height);
+			});
+		}
+
+		setInterval(updatePositions, 1000);
+	</script>
 </body>
+
 </html>
