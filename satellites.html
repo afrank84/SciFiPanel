@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Satellite Live MVP</title>
+
+  <!-- Cesium -->
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.111/Build/Cesium/Cesium.js"></script>
+  <link href="https://cesium.com/downloads/cesiumjs/releases/1.111/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+
+  <!-- satellite.js -->
+  <script src="https://unpkg.com/satellite.js/dist/satellite.min.js"></script>
+
+  <style>
+    html, body, #cesiumContainer {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: black;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="cesiumContainer"></div>
+
+  <script>
+    // Create globe
+    const viewer = new Cesium.Viewer("cesiumContainer", {
+      timeline: false,
+      animation: false,
+      baseLayerPicker: false
+    });
+
+    viewer.scene.globe.enableLighting = true;
+
+    let satellites = [];
+
+    // Load active satellites TLE
+    fetch("https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle")
+      .then(res => res.text())
+      .then(data => {
+        const lines = data.split("\n").filter(l => l.trim() !== "");
+
+        for (let i = 0; i < lines.length; i += 3) {
+          const name = lines[i];
+          const tle1 = lines[i+1];
+          const tle2 = lines[i+2];
+
+          if (!tle1 || !tle2) continue;
+
+          const satrec = satellite.twoline2satrec(tle1, tle2);
+
+          const entity = viewer.entities.add({
+            name: name,
+            position: new Cesium.Cartesian3(),
+            point: {
+              pixelSize: 4,
+              color: Cesium.Color.LIME
+            }
+          });
+
+          satellites.push({ satrec, entity });
+        }
+      });
+
+    function updatePositions() {
+      const now = new Date();
+
+      satellites.forEach(obj => {
+        const positionAndVelocity = satellite.propagate(obj.satrec, now);
+        const positionEci = positionAndVelocity.position;
+
+        if (!positionEci) return;
+
+        const gmst = satellite.gstime(now);
+        const positionGd = satellite.eciToGeodetic(positionEci, gmst);
+
+        const longitude = Cesium.Math.toDegrees(positionGd.longitude);
+        const latitude = Cesium.Math.toDegrees(positionGd.latitude);
+        const height = positionGd.height * 1000;
+
+        obj.entity.position = Cesium.Cartesian3.fromDegrees(longitude, latitude, height);
+      });
+    }
+
+    setInterval(updatePositions, 1000);
+  </script>
+</body>
+</html>
