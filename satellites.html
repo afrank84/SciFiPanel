@@ -5,14 +5,10 @@
 	<meta charset="utf-8" />
 	<title>Satellite Live MVP</title>
 
-	<!-- Cesium -->
 	<script src="https://cesium.com/downloads/cesiumjs/releases/1.111/Build/Cesium/Cesium.js"></script>
 	<link href="https://cesium.com/downloads/cesiumjs/releases/1.111/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
 
-	<!-- satellite.js -->
 	<script src="https://unpkg.com/satellite.js/dist/satellite.min.js"></script>
-
-	<!-- Local token (NOT committed) -->
 	<script src="token.js"></script>
 
 	<style>
@@ -25,100 +21,209 @@
 			padding: 0;
 			overflow: hidden;
 			background: black;
+			font-family: monospace;
+		}
+
+		#loadingScreen {
+			position: absolute;
+			width: 100%;
+			height: 100%;
+			background: black;
+			color: #00ffcc;
+			display: flex;
+			flex-direction: column;
+			justify-content: center;
+			align-items: center;
+			font-size: 20px;
+			z-index: 2000;
+			display: none;
+		}
+
+		#controlPanel {
+			position: absolute;
+			top: 10px;
+			left: 10px;
+			background: rgba(0, 0, 0, 0.8);
+			color: #00ffcc;
+			padding: 12px;
+			border: 1px solid #00ffcc55;
+			z-index: 1500;
+		}
+
+		#controlPanel button {
+			width: 100%;
+			margin-top: 6px;
+			background: black;
+			color: #00ffcc;
+			border: 1px solid #00ffcc55;
+			cursor: pointer;
+		}
+
+		#controlPanel button:hover {
+			box-shadow: 0 0 8px #00ffcc;
 		}
 	</style>
 </head>
 
 <body>
+
+	<div id="loadingScreen">
+		<div>Loading satellites...</div>
+		<div id="loadCount">0</div>
+	</div>
+
+	<div id="controlPanel">
+		<div>Loaded: <span id="satCount">0</span></div>
+
+		<hr>
+
+		<button onclick="loadGroup('stations')">ISS / Stations</button>
+		<button onclick="loadGroup('starlink')">Starlink</button>
+		<button onclick="loadGroup('weather')">Weather</button>
+		<button onclick="loadGroup('active')">All Active (Heavy)</button>
+
+		<hr>
+
+		<button onclick="setUpdateInterval(1000)">1s Update</button>
+		<button onclick="setUpdateInterval(5000)">5s Update</button>
+		<button onclick="setUpdateInterval(10000)">10s Update</button>
+	</div>
+
 	<div id="cesiumContainer"></div>
 
 	<script>
 
-		// Safety check
 		if (!window.CESIUM_ION_TOKEN) {
-			console.error("CESIUM_ION_TOKEN missing. Create token.js");
+			console.error("CESIUM_ION_TOKEN missing.");
 		} else {
 			Cesium.Ion.defaultAccessToken = window.CESIUM_ION_TOKEN;
 		}
 
-		// Create globe (YOUR CODE + terrain added)
 		const viewer = new Cesium.Viewer("cesiumContainer", {
 			timeline: false,
 			animation: false,
-			baseLayerPicker: true,        // lets you switch imagery
-			geocoder: true,               // enables search bar
+			baseLayerPicker: true,
+			geocoder: true,
 			terrain: Cesium.Terrain.fromWorldTerrain()
 		});
 
 		viewer.scene.globe.enableLighting = true;
-		viewer.scene.globe.depthTestAgainstTerrain = true;
-
-		// Enable click selection
-		viewer.screenSpaceEventHandler.setInputAction(function (click) {
-			const pickedObject = viewer.scene.pick(click.position);
-			if (Cesium.defined(pickedObject) && pickedObject.id) {
-				viewer.selectedEntity = pickedObject.id;
-			}
-		}, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
 		let satellites = [];
+		let updateTimer = null;
+		let updateInterval = 5000;
 
-		// Load active satellites TLE
-		fetch("https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle")
-			.then(res => res.text())
-			.then(data => {
-				const lines = data.split("\n").filter(l => l.trim() !== "");
+		function setUpdateInterval(ms) {
+			updateInterval = ms;
+			if (updateTimer) clearInterval(updateTimer);
+			updateTimer = setInterval(updatePositions, updateInterval);
+		}
 
-				for (let i = 0; i < lines.length; i += 3) {
-					const name = lines[i];
-					const tle1 = lines[i + 1];
-					const tle2 = lines[i + 2];
+		function clearSatellites() {
+			satellites.forEach(obj => viewer.entities.remove(obj.entity));
+			satellites = [];
+			document.getElementById("satCount").innerText = 0;
+		}
 
-					if (!tle1 || !tle2) continue;
+		function loadGroup(group) {
 
-					const satrec = satellite.twoline2satrec(tle1, tle2);
+			clearSatellites();
 
-					const entity = viewer.entities.add({
-						name: name,
-						position: new Cesium.Cartesian3(),
-						point: {
-							pixelSize: 4,
-							color: Cesium.Color.LIME
-						},
-						description: `<b>${name}</b>`
-					});
+			document.getElementById("loadingScreen").style.display = "flex";
+			document.getElementById("loadCount").innerText = 0;
 
-					satellites.push({ satrec, entity, name });
-				}
-			});
+			fetch(`https://celestrak.org/NORAD/elements/gp.php?GROUP=${group}&FORMAT=tle`)
+				.then(res => res.text())
+				.then(data => {
+
+					const lines = data.split("\n").filter(l => l.trim() !== "");
+					let index = 0;
+
+					function loadBatch() {
+
+						const batchSize = 200;
+						let count = 0;
+
+						while (index < lines.length && count < batchSize) {
+
+							const name = lines[index];
+							const tle1 = lines[index + 1];
+							const tle2 = lines[index + 2];
+
+							index += 3;
+							count++;
+
+							if (!tle1 || !tle2) continue;
+
+							const satrec = satellite.twoline2satrec(tle1, tle2);
+
+							const entity = viewer.entities.add({
+								name: name,
+								position: new Cesium.Cartesian3(),
+								point: {
+									pixelSize: 4,
+									color: Cesium.Color.CYAN
+								}
+							});
+
+							satellites.push({ satrec, entity, name });
+						}
+
+						document.getElementById("loadCount").innerText = satellites.length;
+						document.getElementById("satCount").innerText = satellites.length;
+
+						if (index < lines.length) {
+							setTimeout(loadBatch, 10);
+						} else {
+							document.getElementById("loadingScreen").style.display = "none";
+							if (updateTimer) clearInterval(updateTimer);
+							updateTimer = setInterval(updatePositions, updateInterval);
+						}
+					}
+
+					loadBatch();
+				});
+		}
+
+		viewer.screenSpaceEventHandler.setInputAction(function (click) {
+
+			const picked = viewer.scene.pick(click.position);
+			if (!Cesium.defined(picked) || !picked.id) return;
+
+			satellites.forEach(obj => obj.entity.label = undefined);
+
+			picked.id.label = {
+				text: picked.id.name,
+				font: "12px monospace",
+				fillColor: Cesium.Color.CYAN,
+				outlineColor: Cesium.Color.BLACK,
+				outlineWidth: 2,
+				style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+				verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+				pixelOffset: new Cesium.Cartesian2(0, -12)
+			};
+
+		}, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
 		function updatePositions() {
+
 			const now = new Date();
 
 			satellites.forEach(obj => {
-				const positionAndVelocity = satellite.propagate(obj.satrec, now);
-				const positionEci = positionAndVelocity.position;
-				if (!positionEci) return;
+
+				const pv = satellite.propagate(obj.satrec, now);
+				if (!pv.position) return;
 
 				const gmst = satellite.gstime(now);
-				const positionGd = satellite.eciToGeodetic(positionEci, gmst);
+				const gd = satellite.eciToGeodetic(pv.position, gmst);
 
-				const longitude = Cesium.Math.toDegrees(positionGd.longitude);
-				const latitude = Cesium.Math.toDegrees(positionGd.latitude);
-				const height = positionGd.height * 1000;
+				const lon = Cesium.Math.toDegrees(gd.longitude);
+				const lat = Cesium.Math.toDegrees(gd.latitude);
+				const height = gd.height * 1000;
 
-				obj.entity.position = Cesium.Cartesian3.fromDegrees(longitude, latitude, height);
-
-				obj.entity.description = `
-					<b>${obj.name}</b><br>
-					Latitude: ${latitude.toFixed(2)}°<br>
-					Longitude: ${longitude.toFixed(2)}°<br>
-					Altitude: ${(height / 1000).toFixed(1)} km
-				`;
+				obj.entity.position = Cesium.Cartesian3.fromDegrees(lon, lat, height);
 			});
 		}
-
-		setInterval(updatePositions, 1000);
 
 	</script>
 </body>
