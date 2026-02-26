@@ -1028,7 +1028,7 @@
 			if (planeFetchInProgress) return;
 			planeFetchInProgress = true;
 
-			fetch("https://opensky-network.org/api/states/all")
+			fetch("http://localhost:8111/api/planes")
 				.then(res => res.json())
 				.then(data => {
 					if (!data || !data.states || !Array.isArray(data.states)) return;
