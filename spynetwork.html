@@ -212,8 +212,13 @@
 		}
 
 		@keyframes sweep {
-			from { transform: rotate(0deg); }
-			to { transform: rotate(360deg); }
+			from {
+				transform: rotate(0deg);
+			}
+
+			to {
+				transform: rotate(360deg);
+			}
 		}
 	</style>
 </head>
@@ -371,9 +376,10 @@
 						<div class="row">
 							<div>Update interval</div>
 							<select id="planeUpdateIntervalSel">
-								<option value="1000">1s</option>
-								<option value="5000" selected>5s</option>
 								<option value="10000">10s</option>
+								<option value="15000">15s</option>
+								<option value="30000" selected>30s</option>
+								<option value="60000">60s</option>
 							</select>
 						</div>
 
@@ -494,6 +500,7 @@
 		let planesUpdateTimer = null;
 		let planesLoaded = false;
 		let selectedPlane = null;
+		let planeFetchInProgress = false;
 
 		// UI elements
 		const satCountEl = document.getElementById("satCount");
@@ -671,15 +678,20 @@
 							const satrec = satellite.twoline2satrec(tle1, tle2);
 
 							const entity = viewer.entities.add({
-								name: name,
-								position: new Cesium.Cartesian3(),
-								point: {
-									pixelSize: 4,
-									color: Cesium.Color.CYAN,
-									outlineColor: Cesium.Color.WHITE,
-									outlineWidth: 1
+								name: callsign || icao24,
+								position: pos,
+								billboard: {
+									image: "https://cdn-icons-png.flaticon.com/512/34/34627.png",
+									scale: 0.6,
+									verticalOrigin: Cesium.VerticalOrigin.CENTER,
+									horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+									heightReference: Cesium.HeightReference.NONE,
+									scaleByDistance: new Cesium.NearFarScalar(
+										100000.0, 1.0,
+										10000000.0, 0.3
+									)
 								},
-								description: `<b>${name}</b>`
+								description: `<b>${callsign || icao24}</b>`
 							});
 
 							const obj = {
@@ -1013,6 +1025,9 @@
 			const nowMs = Date.now();
 
 			// OpenSky: global states (anonymous rate-limited)
+			if (planeFetchInProgress) return;
+			planeFetchInProgress = true;
+
 			fetch("https://opensky-network.org/api/states/all")
 				.then(res => res.json())
 				.then(data => {
@@ -1065,11 +1080,16 @@
 							const entity = viewer.entities.add({
 								name: callsign || icao24,
 								position: pos,
-								point: {
-									pixelSize: 5,
-									color: Cesium.Color.YELLOW,
-									outlineColor: Cesium.Color.BLACK,
-									outlineWidth: 1
+								billboard: {
+									image: "assets/plane.png",
+									scale: 0.08,   // << try this first
+									verticalOrigin: Cesium.VerticalOrigin.CENTER,
+									horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+									disableDepthTestDistance: Number.POSITIVE_INFINITY,
+									scaleByDistance: new Cesium.NearFarScalar(
+										500000.0, 0.6,
+										20000000.0, 0.1
+									)
 								},
 								description: `<b>${callsign || icao24}</b>`
 							});
@@ -1094,6 +1114,12 @@
 							planeObj.entity.position = pos;
 							planeObj.lastPos = pos;
 							planeObj.lastUpdateMs = nowMs;
+
+							// Rotate icon based on heading
+							if (planeObj.lastHeadingDeg != null) {
+								const headingRad = Cesium.Math.toRadians(planeObj.lastHeadingDeg);
+								planeObj.entity.billboard.rotation = -headingRad;
+							}
 
 							// Keep name updated if we get callsign later
 							if (callsign && planeObj.entity.name !== callsign) {
@@ -1131,6 +1157,8 @@
 				.catch(err => {
 					console.warn("Plane fetch/update failed:", err);
 				});
+
+			planeFetchInProgress = false;
 		}
 	</script>
 </body>
