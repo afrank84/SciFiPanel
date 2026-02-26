@@ -212,13 +212,8 @@
 		}
 
 		@keyframes sweep {
-			from {
-				transform: rotate(0deg);
-			}
-
-			to {
-				transform: rotate(360deg);
-			}
+			from { transform: rotate(0deg); }
+			to { transform: rotate(360deg); }
 		}
 	</style>
 </head>
@@ -354,12 +349,73 @@
 					</div>
 				</div>
 
-				<!-- PLANES TAB -->
+				<!-- PLANES TAB (REAL, NOT PLACEHOLDER) -->
 				<div id="tab-planes" style="display:none;">
 					<div class="panel">
-						<div>Planes</div>
+						<div class="row">
+							<div>Loaded</div>
+							<div><span id="planeCount">0</span></div>
+						</div>
+
+						<button class="btn" onclick="loadPlanes()">Load Live Planes (OpenSky)</button>
+						<button class="btn" onclick="clearPlanes()">Clear Planes</button>
+
 						<div class="small" style="margin-top:8px;">
-							Placeholder UI. You can add ADS-B layers here later.
+							Uses OpenSky public endpoint. Anonymous requests are rate limited.
+						</div>
+					</div>
+
+					<div class="panel">
+						<div style="margin-bottom:8px;">Performance</div>
+
+						<div class="row">
+							<div>Update interval</div>
+							<select id="planeUpdateIntervalSel">
+								<option value="1000">1s</option>
+								<option value="5000" selected>5s</option>
+								<option value="10000">10s</option>
+							</select>
+						</div>
+
+						<div class="row">
+							<div>Update only in view</div>
+							<input id="planeFrustumOnlyChk" type="checkbox" checked>
+						</div>
+
+						<div class="row">
+							<div>Stale refresh</div>
+							<select id="planeStaleSel">
+								<option value="15000">15s</option>
+								<option value="30000" selected>30s</option>
+								<option value="60000">60s</option>
+							</select>
+						</div>
+
+						<div class="row">
+							<div>Max planes</div>
+							<select id="planeMaxSel">
+								<option value="1000">1,000</option>
+								<option value="3000" selected>3,000</option>
+								<option value="6000">6,000</option>
+								<option value="10000">10,000</option>
+							</select>
+						</div>
+
+						<div class="small">
+							This layer is separate from satellites. If you max this out, expect browser pain.
+						</div>
+					</div>
+
+					<div class="panel">
+						<div style="margin-bottom:8px;">Visibility</div>
+
+						<div class="row">
+							<div>Show planes</div>
+							<input id="showPlanesChk" type="checkbox" checked>
+						</div>
+
+						<div class="small">
+							Hides plane entities without clearing them.
 						</div>
 					</div>
 				</div>
@@ -431,6 +487,14 @@
 		let issSat = null; // satellite object
 		let trackingISS = false;
 
+		// PLANES STATE (ADDED)
+		// planes: { icao24, callsign, entity, lastPos, lastUpdateMs, lastAltM, lastHeadingDeg, labelOn }
+		let planes = [];
+		let planesByIcao = new Map();
+		let planesUpdateTimer = null;
+		let planesLoaded = false;
+		let selectedPlane = null;
+
 		// UI elements
 		const satCountEl = document.getElementById("satCount");
 		const loadCountEl = document.getElementById("loadCount");
@@ -449,6 +513,14 @@
 		const trailLen = document.getElementById("trailLen");
 
 		const radarChk = document.getElementById("radarChk");
+
+		// PLANES UI (ADDED)
+		const planeCountEl = document.getElementById("planeCount");
+		const planeUpdateIntervalSel = document.getElementById("planeUpdateIntervalSel");
+		const planeFrustumOnlyChk = document.getElementById("planeFrustumOnlyChk");
+		const planeStaleSel = document.getElementById("planeStaleSel");
+		const planeMaxSel = document.getElementById("planeMaxSel");
+		const showPlanesChk = document.getElementById("showPlanesChk");
 
 		// Tabs
 		document.querySelectorAll(".tabBtn").forEach(btn => {
@@ -511,6 +583,16 @@
 		updateIntervalSel.addEventListener("change", startUpdateLoop);
 		startUpdateLoop();
 
+		// PLANES: update loop scheduling (ADDED)
+		function startPlanesUpdateLoop() {
+			const ms = parseInt(planeUpdateIntervalSel.value, 10);
+			if (planesUpdateTimer) clearInterval(planesUpdateTimer);
+			planesUpdateTimer = setInterval(updatePlanes, ms);
+		}
+		planeUpdateIntervalSel.addEventListener("change", () => {
+			if (planesLoaded) startPlanesUpdateLoop();
+		});
+
 		// Clear satellites
 		function clearSatellites() {
 			if (updateTimer) {
@@ -529,7 +611,38 @@
 			satCountEl.innerText = "0";
 		}
 
-		// Loading
+		// PLANES: clear planes (ADDED)
+		window.clearPlanes = function () {
+			selectedPlane = null;
+
+			planes.forEach(p => {
+				if (p.entity) viewer.entities.remove(p.entity);
+			});
+			planes = [];
+			planesByIcao.clear();
+			planeCountEl.innerText = "0";
+
+			planesLoaded = false;
+
+			if (planesUpdateTimer) {
+				clearInterval(planesUpdateTimer);
+				planesUpdateTimer = null;
+			}
+		};
+
+		// PLANES: visibility toggle (ADDED)
+		function applyPlaneVisibility() {
+			const show = showPlanesChk.checked;
+			planes.forEach(p => {
+				if (p.entity) p.entity.show = show;
+			});
+			if (!show && selectedPlane) {
+				clearPlaneSelection();
+			}
+		}
+		showPlanesChk.addEventListener("change", applyPlaneVisibility);
+
+		// Loading (satellites)
 		window.loadGroup = function (group) {
 			clearSatellites();
 
@@ -611,7 +724,7 @@
 				});
 		};
 
-		// Selection / label
+		// Selection / label (satellites)
 		function clearSelection() {
 			satellites.forEach(s => {
 				s.entity.label = undefined;
@@ -639,17 +752,56 @@
 			ensureTrailEntityIfNeeded(satObj);
 		}
 
+		// PLANES: selection (ADDED)
+		function clearPlaneSelection() {
+			planes.forEach(p => {
+				if (p.entity) p.entity.label = undefined;
+			});
+			selectedPlane = null;
+		}
+
+		function setPlaneSelection(planeObj) {
+			clearPlaneSelection();
+			selectedPlane = planeObj;
+
+			if (!planeObj || !planeObj.entity) return;
+
+			planeObj.entity.label = {
+				text: planeObj.callsign ? planeObj.callsign : planeObj.icao24,
+				font: "12px monospace",
+				fillColor: Cesium.Color.YELLOW,
+				outlineColor: Cesium.Color.BLACK,
+				outlineWidth: 2,
+				style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+				verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+				pixelOffset: new Cesium.Cartesian2(0, -12)
+			};
+
+			viewer.selectedEntity = planeObj.entity;
+		}
+
+		// Click handling: satellite-first, then planes (ADDED plane click support without breaking satellites)
 		viewer.screenSpaceEventHandler.setInputAction(function (click) {
 			const picked = viewer.scene.pick(click.position);
 			if (!Cesium.defined(picked) || !picked.id) return;
 
 			const ent = picked.id;
+
+			// Try satellites first (original behavior)
 			const satObj = satellites.find(s => s.entity === ent);
-			if (!satObj) return;
+			if (satObj) {
+				if (!orbitClassVisible(satObj.orbitClass)) return;
+				setSelection(satObj);
+				return;
+			}
 
-			if (!orbitClassVisible(satObj.orbitClass)) return;
-
-			setSelection(satObj);
+			// Then planes (added)
+			const planeObj = planes.find(p => p.entity === ent);
+			if (planeObj) {
+				if (!showPlanesChk.checked) return;
+				setPlaneSelection(planeObj);
+				return;
+			}
 		}, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
 		// ISS tracking
@@ -674,9 +826,6 @@
 			try {
 				if (!cartesianPos) return false;
 
-				// If the entity is hidden by orbit filter, treat as not in view
-				// (we check entity.show elsewhere, but keep this safe)
-				// camera vectors
 				const cam = viewer.camera;
 				const camPos = cam.positionWC;
 				const dir = cam.directionWC;
@@ -755,7 +904,7 @@
 			}
 		});
 
-		// Position updates
+		// Position updates (satellites)
 		function updatePositions(forceFull = false) {
 			if (satellites.length === 0) return;
 
@@ -838,6 +987,151 @@
 			});
 		}
 
+		/* =========================
+		   PLANES (ADDED INTEGRATION)
+		   ========================= */
+
+		// Load planes (starts update loop and does an immediate fetch)
+		window.loadPlanes = function () {
+			planesLoaded = true;
+			updatePlanes(true);
+			startPlanesUpdateLoop();
+		};
+
+		// Fetch + update plane entities
+		function updatePlanes(forceFull = false) {
+			if (!planesLoaded) return;
+
+			// If user hides planes, still update in memory but don't show; cheap early exit
+			// (We still keep updating positions, but we avoid label noise)
+			const show = showPlanesChk.checked;
+
+			const frustumOnly = planeFrustumOnlyChk.checked;
+			const staleRefreshMs = parseInt(planeStaleSel.value, 10);
+			const maxPlanes = parseInt(planeMaxSel.value, 10);
+
+			const nowMs = Date.now();
+
+			// OpenSky: global states (anonymous rate-limited)
+			fetch("https://opensky-network.org/api/states/all")
+				.then(res => res.json())
+				.then(data => {
+					if (!data || !data.states || !Array.isArray(data.states)) return;
+
+					// Limit how many we process this tick (prevents hard lock)
+					const states = data.states;
+					const limit = Math.min(states.length, maxPlanes);
+
+					for (let i = 0; i < limit; i++) {
+						const s = states[i];
+
+						// OpenSky states array fields
+						// 0: icao24
+						// 1: callsign
+						// 5: longitude
+						// 6: latitude
+						// 7: baro_altitude (m)
+						// 10: true_track (deg)
+						const icao24 = s[0];
+						const callsignRaw = s[1];
+						const lon = s[5];
+						const lat = s[6];
+						const altM = s[7];
+						const headingDeg = s[10];
+
+						if (!icao24) continue;
+						if (lat == null || lon == null) continue;
+
+						let planeObj = planesByIcao.get(icao24);
+
+						// Compute position
+						const heightM = (altM != null && isFinite(altM)) ? altM : 0;
+						const pos = Cesium.Cartesian3.fromDegrees(lon, lat, heightM);
+
+						// Frustum optimization: skip updates when out of view, unless stale
+						if (!forceFull && frustumOnly) {
+							const inView = planeObj && planeObj.lastPos ? isLikelyInView(planeObj.lastPos) : true;
+							const stale = planeObj ? ((nowMs - (planeObj.lastUpdateMs || 0)) > staleRefreshMs) : true;
+
+							// If we have an entity already, and it's not in view and not stale, skip
+							if (planeObj && !inView && !stale) {
+								continue;
+							}
+						}
+
+						const callsign = (callsignRaw || "").trim();
+
+						if (!planeObj) {
+							const entity = viewer.entities.add({
+								name: callsign || icao24,
+								position: pos,
+								point: {
+									pixelSize: 5,
+									color: Cesium.Color.YELLOW,
+									outlineColor: Cesium.Color.BLACK,
+									outlineWidth: 1
+								},
+								description: `<b>${callsign || icao24}</b>`
+							});
+
+							planeObj = {
+								icao24,
+								callsign,
+								entity,
+								lastPos: pos,
+								lastUpdateMs: nowMs,
+								lastAltM: heightM,
+								lastHeadingDeg: (headingDeg != null && isFinite(headingDeg)) ? headingDeg : null
+							};
+
+							planes.push(planeObj);
+							planesByIcao.set(icao24, planeObj);
+						} else {
+							planeObj.callsign = callsign || planeObj.callsign;
+							planeObj.lastAltM = heightM;
+							planeObj.lastHeadingDeg = (headingDeg != null && isFinite(headingDeg)) ? headingDeg : planeObj.lastHeadingDeg;
+
+							planeObj.entity.position = pos;
+							planeObj.lastPos = pos;
+							planeObj.lastUpdateMs = nowMs;
+
+							// Keep name updated if we get callsign later
+							if (callsign && planeObj.entity.name !== callsign) {
+								planeObj.entity.name = callsign;
+							}
+						}
+
+						// Visibility
+						if (planeObj && planeObj.entity) {
+							planeObj.entity.show = show;
+						}
+
+						// Lightweight description
+						if (planeObj && planeObj.entity) {
+							const km = (heightM / 1000.0);
+							const h = (planeObj.lastHeadingDeg != null) ? `${planeObj.lastHeadingDeg.toFixed(0)}°` : "N/A";
+							planeObj.entity.description = `
+								<b>${planeObj.callsign || planeObj.icao24}</b><br>
+								ICAO24: ${planeObj.icao24}<br>
+								Altitude: ${km.toFixed(1)} km<br>
+								Heading: ${h}<br>
+								Latitude: ${lat.toFixed(2)}°<br>
+								Longitude: ${lon.toFixed(2)}°
+							`;
+						}
+					}
+
+					planeCountEl.innerText = String(planes.length);
+
+					// If planes are hidden, ensure labels are cleared (keeps UI clean)
+					if (!show && selectedPlane) {
+						clearPlaneSelection();
+					}
+				})
+				.catch(err => {
+					console.warn("Plane fetch/update failed:", err);
+				});
+		}
 	</script>
 </body>
 
