@@ -246,6 +246,10 @@
 							<div>Loaded</div>
 							<div><span id="satCount">0</span></div>
 						</div>
+						<div class="row">
+							<div>Show satellites</div>
+							<input id="showSatsChk" type="checkbox" checked>
+						</div>
 
 						<button class="btn" onclick="loadGroup('stations')">Load Stations (ISS)</button>
 						<button class="btn" onclick="loadGroup('starlink')">Load Starlink</button>
@@ -340,6 +344,18 @@
 
 					<div class="panel">
 						<div style="margin-bottom:8px;">Tracking and HUD</div>
+						<div class="panel">
+							<div style="margin-bottom:8px;">Find Satellite</div>
+
+							<input id="satSearchInput" type="text" placeholder="Enter satellite name..."
+								style="width:100%; margin-bottom:6px;">
+
+							<button class="btn" onclick="searchSatellite()">Search & Fly</button>
+
+							<div class="small">
+								Partial name match supported (e.g., "ISS", "STARLINK").
+							</div>
+						</div>
 
 						<button class="btn" onclick="toggleTrackISS()">Toggle auto-track ISS</button>
 
@@ -550,6 +566,38 @@
 		radarChk.addEventListener("change", syncRadar);
 		syncRadar();
 
+		//search for satellite
+
+		const satSearchInput = document.getElementById("satSearchInput");
+
+		window.searchSatellite = function () {
+			const query = satSearchInput.value.trim().toUpperCase();
+			if (!query) return;
+
+			const match = satellites.find(s =>
+				s.name && s.name.toUpperCase().includes(query)
+			);
+
+			if (!match) {
+				alert("Satellite not found in loaded group.");
+				return;
+			}
+
+			// Make sure it's visible
+			if (!orbitClassVisible(match.orbitClass)) {
+				alert("Satellite found but hidden by orbit filter.");
+				return;
+			}
+
+			setSelection(match);
+
+			if (match.entity.position) {
+				viewer.flyTo(match.entity, {
+					duration: 2.0
+				});
+			}
+		};
+
 		// Utility: orbit classification by altitude (km)
 		function classifyOrbit(altKm) {
 			if (altKm == null || !isFinite(altKm)) return "UNKNOWN";
@@ -737,6 +785,21 @@
 		};
 
 		// Selection / label (satellites)
+		const showSatsChk = document.getElementById("showSatsChk");
+
+		function applySatelliteVisibility() {
+			const show = showSatsChk.checked;
+			satellites.forEach(s => {
+				s.entity.show = show && orbitClassVisible(s.orbitClass);
+			});
+
+			if (!show && selectedSat) {
+				clearSelection();
+			}
+		}
+
+		showSatsChk.addEventListener("change", applySatelliteVisibility);
+
 		function clearSelection() {
 			satellites.forEach(s => {
 				s.entity.label = undefined;
@@ -965,7 +1028,7 @@
 
 				// Apply orbit-class visibility on the fly
 				const ok = orbitClassVisible(obj.orbitClass);
-				obj.entity.show = ok;
+				obj.entity.show = ok && showSatsChk.checked;
 				if (!ok) return;
 
 				const pos = Cesium.Cartesian3.fromDegrees(lon, lat, heightM);
