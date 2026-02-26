@@ -678,20 +678,20 @@
 							const satrec = satellite.twoline2satrec(tle1, tle2);
 
 							const entity = viewer.entities.add({
-								name: callsign || icao24,
-								position: pos,
+								name: name,
+								position: Cesium.Cartesian3.fromDegrees(0, 0, 0), // temporary seed
 								billboard: {
-									image: "https://cdn-icons-png.flaticon.com/512/34/34627.png",
+									image: "assets/satellite.png",
 									scale: 0.6,
 									verticalOrigin: Cesium.VerticalOrigin.CENTER,
 									horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
 									heightReference: Cesium.HeightReference.NONE,
 									scaleByDistance: new Cesium.NearFarScalar(
-										100000.0, 1.0,
-										10000000.0, 0.3
+										500000.0, 0.8,      // close
+										20000000.0, 0.15   // far
 									)
 								},
-								description: `<b>${callsign || icao24}</b>`
+								description: `<b>${name}</b>`
 							});
 
 							const obj = {
